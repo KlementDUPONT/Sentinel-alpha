@@ -46,9 +46,9 @@ class SentinelBot {
       logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       logger.info('🚀 Starting Sentinel...');
       logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      logger.info(`📌 Version: ${config.version}`);
-      logger.info(`🌍 Environment: ${config.environment}`);
-      logger.info(`🔧 Prefix: ${config.prefix}`);
+      logger.info('📌 Version: ' + config.version);
+      logger.info('🌍 Environment: ' + config.environment);
+      logger.info('🔧 Prefix: ' + config.prefix);
       logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       // Step 1: Initialize database
@@ -107,8 +107,9 @@ class SentinelBot {
       });
     });
 
-    app.listen(port, () => {
-      logger.info(`🌐 Health check server running on port ${port}`);
+    // 🔥 FIX : Bind à 0.0.0.0 au lieu de localhost
+    app.listen(port, '0.0.0.0', () => {
+      logger.info('🌐 Health check server running on port ' + port);
     });
   }
 }
@@ -126,9 +127,9 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Initialize bot
+// 🔥 FIX : Démarrer le serveur AVANT l'initialisation du bot
 const bot = new SentinelBot();
-bot.setupHealthCheck();
-await bot.initialize();
+bot.setupHealthCheck(); // Démarre Express en premier
+await bot.initialize();  // Puis connecte Discord
 
 export default bot;
