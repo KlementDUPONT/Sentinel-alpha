@@ -1,188 +1,241 @@
-import { Events } from 'discord.js';
+import { InteractionType, PermissionFlagsBits } from 'discord.js';
 import logger from '../../utils/logger.js';
-import { RESPONSE_MESSAGES } from '../../config/constants.js';
-import CustomEmbedBuilder from '../../utils/embedBuilder.js';
 
 export default {
-  name: Events.InteractionCreate,
+  name: 'interactionCreate',
+  category: 'client',
+
   async execute(interaction) {
-    // Gestion des commandes slash
-    if (interaction.isChatInputCommand()) {
-      await handleCommand(interaction);
-    }
+    try {
+      if (interaction.type === InteractionType.ApplicationCommand) {
+        await handleCommand(interaction);
+      } else if (interaction.isButton()) {
+        await handleButton(interaction);
+      } else if (interaction.isStringSelectMenu()) {
+        await handleSelectMenu(interaction);
+      } else if (interaction.isModalSubmit()) {
+        await handleModal(interaction);
+      }
+    } catch (error) {
+      logger.error('Error in interactionCreate event:', error);
+      
+      const errorMessage = {
+        content: '❌ Une erreur est survenue lors du traitement de cette interaction.',
+        flags: 64 // EPHEMERAL
+      };
 
-    // Gestion des boutons
-    if (interaction.isButton()) {
-      await handleButton(interaction);
+      try {
+        if (interaction.deferred) {
+          await interaction.editReply(errorMessage);
+        } else if (!interaction.replied) {
+          await interaction.reply(errorMessage);
+        }
+      } catch (replyError) {
+        logger.error('Failed to send error message:', replyError);
+      }
     }
-
-    // Gestion des menus de sélection
-    if (interaction.isStringSelectMenu()) {
-      await handleSelectMenu(interaction);
-    }
-
-    // Gestion des modals
-    if (interaction.isModalSubmit()) {
-      await handleModal(interaction);
-    }
-
-    // Gestion des autocomplete
-    if (interaction.isAutocomplete()) {
-      await handleAutocomplete(interaction);
-    }
-  },
+  }
 };
 
-/**
- * Gère les commandes slash
- */
 async function handleCommand(interaction) {
   const command = interaction.client.commands.get(interaction.commandName);
 
   if (!command) {
-    logger.warn(`Command ${interaction.commandName} not found`);
-    return;
+    return await interaction.reply({
+      content: '❌ Cette commande n\'existe pas.',
+      flags: 64 // EPHEMERAL
+    });
   }
 
   try {
-    // Log de la commande
-    logger.command(
-      interaction.user.tag,
-      interaction.commandName,
-      interaction.guild?.name || 'DM'
-    );
-
-    // Vérifier les cooldowns
-    const cooldownCheck = interaction.client.commandHandler.checkCooldown(
-      interaction.user.id,
-      command.data.name,
-      command.cooldown || 3
-    );
-
-    if (cooldownCheck.onCooldown) {
-      const embed = CustomEmbedBuilder.warning(
-        'Cooldown',
-        RESPONSE_MESSAGES.COOLDOWN.replace('{time}', `${cooldownCheck.timeLeft}s`)
-      );
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+    // Check if command is enabled
+    if (command.enabled === false) {
+      return await interaction.reply({
+        content: '❌ Cette commande est actuellement désactivée.',
+        flags: 64 // EPHEMERAL
+      });
     }
 
-    // Vérifier si la commande nécessite une guilde
+    // Check if command is owner only
+    if (command.ownerOnly && interaction.user.id !== interaction.client.config.ownerId) {
+      return await interaction.reply({
+        content: '❌ Cette commande est réservée au propriétaire du bot.',
+        flags: 64 // EPHEMERAL
+      });
+    }
+
+    // Check if command is guild only
     if (command.guildOnly && !interaction.guild) {
-      const embed = CustomEmbedBuilder.error(
-        'Erreur',
-        'Cette commande ne peut être utilisée que dans un serveur.'
-      );
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return await interaction.reply({
+        content: '❌ Cette commande ne peut être utilisée qu\'en serveur.',
+        flags: 64 // EPHEMERAL
+      });
     }
 
-    // Vérifier les permissions de l'utilisateur
-    if (command.permissions && interaction.guild) {
-      const { PermissionManager } = await import('../../config/permissions.js');
-      
-      const missingPerms = PermissionManager.getMissingPermissions(
-        interaction.member,
-        command.permissions
-      );
+    // Check cooldown
+    const cooldownKey = `${interaction.commandName}-${interaction.user.id}`;
+    const now = Date.now();
+    const cooldownAmount = (command.cooldown || 3) * 1000;
+
+    if (interaction.client.cooldowns.has(cooldownKey)) {
+      const expirationTime = interaction.client.cooldowns.get(cooldownKey) + cooldownAmount;
+
+      if (now < expirationTime) {
+        const timeLeft = (expirationTime - now) / 1000;
+        return await interaction.reply({
+          content: `⏰ Veuillez attendre ${timeLeft.toFixed(1)} seconde(s) avant de réutiliser \`${interaction.commandName}\`.`,
+          flags: 64 // EPHEMERAL
+        });
+      }
+    }
+
+    // Check bot permissions
+    if (command.botPermissions && interaction.guild) {
+      const botMember = interaction.guild.members.me;
+      const missingPerms = botMember.permissions.missing(command.botPermissions);
 
       if (missingPerms.length > 0) {
-        const embed = CustomEmbedBuilder.error(
-          'Permissions insuffisantes',
-          `${RESPONSE_MESSAGES.NO_PERMISSION}\n\nPermissions requises : ${PermissionManager.formatPermissions(missingPerms)}`
-        );
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return await interaction.reply({
+          content: `❌ Je n'ai pas les permissions nécessaires: \`${missingPerms.join(', ')}\``,
+          flags: 64 // EPHEMERAL
+        });
       }
     }
 
-    // Vérifier les permissions du bot
-    if (command.botPermissions && interaction.guild) {
-      const { PermissionManager } = await import('../../config/permissions.js');
-      
-      const botMissingPerms = PermissionManager.getMissingPermissions(
-        interaction.guild.members.me,
-        command.botPermissions
-      );
+    // Check user permissions
+    if (command.userPermissions && interaction.guild) {
+      if (!interaction.member || !interaction.member.permissions) {
+        return await interaction.reply({
+          content: '❌ Impossible de vérifier vos permissions.',
+          flags: 64 // EPHEMERAL
+        });
+      }
 
-      if (botMissingPerms.length > 0) {
-        const embed = CustomEmbedBuilder.error(
-          'Permissions du bot insuffisantes',
-          `${RESPONSE_MESSAGES.BOT_NO_PERMISSION}\n\nPermissions requises : ${PermissionManager.formatPermissions(botMissingPerms)}`
-        );
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+      const missingPerms = interaction.member.permissions.missing(command.userPermissions);
+
+      if (missingPerms.length > 0) {
+        return await interaction.reply({
+          content: `❌ Vous n'avez pas les permissions nécessaires: \`${missingPerms.join(', ')}\``,
+          flags: 64 // EPHEMERAL
+        });
       }
     }
 
-    // Exécuter la commande
+    // Set cooldown
+    interaction.client.cooldowns.set(cooldownKey, now);
+    setTimeout(() => interaction.client.cooldowns.delete(cooldownKey), cooldownAmount);
+
+    // Execute command
     await command.execute(interaction);
 
+    // Log command execution
+    logger.info(
+      `Command executed: /${interaction.commandName} by ${interaction.user.tag} in ${
+        interaction.guild ? interaction.guild.name : 'DM'
+      }`
+    );
+
   } catch (error) {
-    logger.error(`Error executing command ${interaction.commandName}:`);
-    logger.error(error);
-    
-    // Utiliser le ErrorHandler
-    await interaction.client.errorHandler.handleCommandError(interaction, error);
+    logger.error(`Error executing command ${interaction.commandName}:`, error);
+    logger.error(`❌ Command Error [${interaction.commandName}]:`, {
+      user: `${interaction.user.tag} (${interaction.user.id})`,
+      guild: interaction.guild ? `${interaction.guild.name} (${interaction.guild.id})` : 'DM',
+      error: error.message
+    });
+
+    const errorMessage = {
+      content: '❌ Une erreur est survenue lors de l\'exécution de cette commande.',
+      flags: 64 // EPHEMERAL
+    };
+
+    if (interaction.deferred) {
+      await interaction.editReply(errorMessage);
+    } else if (!interaction.replied) {
+      await interaction.reply(errorMessage);
+    }
   }
 }
 
-/**
- * Gère les boutons
- */
 async function handleButton(interaction) {
-  logger.info(`[Button] ${interaction.user.tag} clicked: ${interaction.customId}`);
+  const [action, ...args] = interaction.customId.split('_');
+  
+  logger.info(`Button clicked: ${interaction.customId} by ${interaction.user.tag}`);
 
-  // Gestion des boutons de pagination
-  if (interaction.customId.startsWith('pagination_')) {
-    // Géré automatiquement par le système de pagination
-    return;
+  // Handle button interactions
+  switch (action) {
+    case 'help':
+      await handleHelpButton(interaction, args);
+      break;
+    case 'ticket':
+      await handleTicketButton(interaction, args);
+      break;
+    default:
+      await interaction.reply({
+        content: '❌ Bouton non reconnu.',
+        flags: 64 // EPHEMERAL
+      });
   }
-
-  // Gestion des boutons de tickets
-  if (interaction.customId.startsWith('ticket_')) {
-    // À implémenter dans les commandes de tickets
-    return;
-  }
-
-  // Autres boutons personnalisés...
 }
 
-/**
- * Gère les menus de sélection
- */
 async function handleSelectMenu(interaction) {
-  logger.info(`[Select] ${interaction.user.tag} selected: ${interaction.customId}`);
+  const [action] = interaction.customId.split('_');
+  
+  logger.info(`Select menu used: ${interaction.customId} by ${interaction.user.tag}`);
 
-  // Gestion des menus de tickets
-  if (interaction.customId === 'ticket_category') {
-    // À implémenter dans les commandes de tickets
-    return;
+  // Handle select menu interactions
+  switch (action) {
+    case 'help':
+      await handleHelpSelect(interaction);
+      break;
+    default:
+      await interaction.reply({
+        content: '❌ Menu non reconnu.',
+        flags: 64 // EPHEMERAL
+      });
   }
-
-  // Autres menus personnalisés...
 }
 
-/**
- * Gère les modals
- */
 async function handleModal(interaction) {
-  logger.info(`[Modal] ${interaction.user.tag} submitted: ${interaction.customId}`);
+  const [action] = interaction.customId.split('_');
+  
+  logger.info(`Modal submitted: ${interaction.customId} by ${interaction.user.tag}`);
 
-  // À implémenter selon les besoins
+  // Handle modal submissions
+  switch (action) {
+    case 'ticket':
+      await handleTicketModal(interaction);
+      break;
+    default:
+      await interaction.reply({
+        content: '❌ Modal non reconnu.',
+        flags: 64 // EPHEMERAL
+      });
+  }
 }
 
-/**
- * Gère l'autocomplete
- */
-async function handleAutocomplete(interaction) {
-  const command = interaction.client.commands.get(interaction.commandName);
+// Helper functions for interactions
+async function handleHelpButton(interaction, args) {
+  const category = args[0];
+  const commands = interaction.client.commands;
+  
+  // Implementation for help button
+  await interaction.deferUpdate();
+}
 
-  if (!command || !command.autocomplete) {
-    return;
-  }
+async function handleHelpSelect(interaction) {
+  const category = interaction.values[0];
+  const commands = interaction.client.commands;
+  
+  // Implementation for help select menu
+  await interaction.deferUpdate();
+}
 
-  try {
-    await command.autocomplete(interaction);
-  } catch (error) {
-    logger.error(`Error in autocomplete for ${interaction.commandName}:`);
-    logger.error(error);
-  }
+async function handleTicketButton(interaction, args) {
+  // Implementation for ticket button
+  await interaction.deferReply({ flags: 64 }); // EPHEMERAL
+}
+
+async function handleTicketModal(interaction) {
+  // Implementation for ticket modal
+  await interaction.deferReply({ flags: 64 }); // EPHEMERAL
 }
