@@ -41,6 +41,51 @@ class SentinelBot {
     this.commandHandler = new CommandHandler(this.client);
   }
 
+  async setupHealthCheck() {
+    return new Promise((resolve, reject) => {
+      const app = express();
+      const port = process.env.PORT || 8000;
+
+      logger.info('🔧 Setting up health check routes...');
+
+      app.get('/health', (req, res) => {
+        logger.info('🏥 Health check requested');
+        const health = {
+          status: 'ok',
+          uptime: process.uptime(),
+          timestamp: Date.now(),
+          bot: {
+            ready: this.client.isReady(),
+            guilds: this.client.guilds.cache.size,
+            users: this.client.users.cache.size,
+          }
+        };
+        res.status(200).json(health);
+      });
+
+      app.get('/', (req, res) => {
+        logger.info('📡 Root endpoint requested');
+        res.status(200).json({
+          name: 'Sentinel Bot',
+          version: config.version,
+          status: this.client.isReady() ? 'online' : 'offline',
+          uptime: process.uptime()
+        });
+      });
+
+      const server = app.listen(port, '0.0.0.0', () => {
+        logger.info('✅ Health check server READY on 0.0.0.0:' + port);
+        logger.info('🔗 Endpoints: /health and /');
+        resolve(server);
+      });
+
+      server.on('error', (error) => {
+        logger.error('❌ Express server error:', error);
+        reject(error);
+      });
+    });
+  }
+
   async initialize() {
     try {
       logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -80,38 +125,6 @@ class SentinelBot {
       process.exit(1);
     }
   }
-
-  setupHealthCheck() {
-    const app = express();
-    const port = process.env.PORT || 8000;
-
-    app.get('/health', (req, res) => {
-      const health = {
-        status: 'ok',
-        uptime: process.uptime(),
-        timestamp: Date.now(),
-        bot: {
-          ready: this.client.isReady(),
-          guilds: this.client.guilds.cache.size,
-          users: this.client.users.cache.size,
-        }
-      };
-      res.json(health);
-    });
-
-    app.get('/', (req, res) => {
-      res.json({
-        name: 'Sentinel Bot',
-        version: config.version,
-        status: this.client.isReady() ? 'online' : 'offline'
-      });
-    });
-
-    // 🔥 FIX : Bind à 0.0.0.0 au lieu de localhost
-    app.listen(port, '0.0.0.0', () => {
-      logger.info('🌐 Health check server running on port ' + port);
-    });
-  }
 }
 
 // Error handlers
@@ -127,9 +140,25 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// 🔥 FIX : Démarrer le serveur AVANT l'initialisation du bot
-const bot = new SentinelBot();
-bot.setupHealthCheck(); // Démarre Express en premier
-await bot.initialize();  // Puis connecte Discord
+// Démarrage dans le bon ordre
+async function start() {
+  try {
+    const bot = new SentinelBot();
+    
+    // 1. Démarrer Express EN PREMIER
+    logger.info('🌐 Starting health check server...');
+    await bot.setupHealthCheck();
+    logger.info('✅ Health check server ready');
+    
+    // 2. PUIS initialiser Discord
+    logger.info('🤖 Starting Discord bot...');
+    await bot.initialize();
+    
+  } catch (error) {
+    logger.error('❌ Failed to start bot:', error);
+    process.exit(1);
+  }
+}
 
-export default bot;
+// Lancer
+start();
