@@ -1,146 +1,155 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
-import CustomEmbedBuilder from '../../utils/embedBuilder.js';
-import Models from '../../database/models/index.js';
+import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } from 'discord.js';
+import logger from '../../utils/logger.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('Configuration automatique complète du bot')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDescription('🔧 Configuration automatique du serveur')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(false),
 
-  permissions: ['Administrator'],
-  botPermissions: ['ManageChannels', 'ManageRoles'],
-  guildOnly: true,
-  cooldown: 60,
+  category: 'admin',
+  cooldown: 10,
+  userPermissions: [PermissionFlagsBits.Administrator],
+  botPermissions: [
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.ManageRoles,
+  ],
 
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 }); // EPHEMERAL
 
     try {
-      const embed = CustomEmbedBuilder.info(
-        '⚙️ Configuration automatique',
-        'Configuration du bot en cours...'
-      );
+      const { guild } = interaction;
+      const db = interaction.client.db;
 
-      const reply = await interaction.editReply({ embeds: [embed] });
-
-      // Créer/récupérer la catégorie Sentinel
-      let category = interaction.guild.channels.cache.find(
-        c => c.type === ChannelType.GuildCategory && c.name === '📊 SENTINEL'
-      );
-
-      if (!category) {
-        category = await interaction.guild.channels.create({
-          name: '📊 SENTINEL',
-          type: ChannelType.GuildCategory,
-        });
+      // Create or get guild in database
+      let guildData = db.getGuild(guild.id);
+      if (!guildData) {
+        db.createGuild(guild.id, guild.name);
+        guildData = db.getGuild(guild.id);
       }
 
-      // Créer le salon de logs de modération
-      let modLogChannel = interaction.guild.channels.cache.find(
-        c => c.name === 'mod-logs' && c.parentId === category.id
-      );
+      const setupEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle('⚙️ Configuration automatique')
+        .setDescription('Configuration du bot en cours...')
+        .setTimestamp();
 
-      if (!modLogChannel) {
-        modLogChannel = await interaction.guild.channels.create({
-          name: '🔨-mod-logs',
+      await interaction.editReply({ embeds: [setupEmbed] });
+
+      // Create roles
+      logger.info('Creating roles...');
+      let muteRole = guild.roles.cache.find(r => r.name === 'Muted');
+      
+      if (!muteRole) {
+        muteRole = await guild.roles.create({
+          name: 'Muted',
+          color: '#818386',
+          permissions: [],
+          reason: 'Setup automatique - Rôle de mute',
+        });
+
+        // Update permissions for all channels
+        for (const channel of guild.channels.cache.values()) {
+          try {
+            await channel.permissionOverwrites.create(muteRole, {
+              SendMessages: false,
+              AddReactions: false,
+              Speak: false,
+            });
+          } catch (error) {
+            logger.error(`Failed to update permissions for ${channel.name}:`, error);
+          }
+        }
+      }
+
+      // Create log channel
+      logger.info('Creating log channel...');
+      let logChannel = guild.channels.cache.find(c => c.name === 'sentinel-logs');
+      
+      if (!logChannel) {
+        logChannel = await guild.channels.create({
+          name: 'sentinel-logs',
           type: ChannelType.GuildText,
-          parent: category.id,
           permissionOverwrites: [
             {
-              id: interaction.guild.id,
-              deny: ['ViewChannel'],
+              id: guild.id,
+              deny: [PermissionFlagsBits.ViewChannel],
             },
             {
-              id: interaction.guild.members.me.id,
-              allow: ['ViewChannel', 'SendMessages'],
+              id: interaction.client.user.id,
+              allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.EmbedLinks,
+              ],
             },
           ],
+          reason: 'Setup automatique - Logs du bot',
         });
       }
 
-      // Créer le salon de bienvenue
-      let welcomeChannel = interaction.guild.channels.cache.find(
-        c => c.name === 'bienvenue' && c.parentId === category.id
-      );
-
+      // Create welcome channel
+      logger.info('Creating welcome channel...');
+      let welcomeChannel = guild.channels.cache.find(c => c.name === 'bienvenue');
+      
       if (!welcomeChannel) {
-        welcomeChannel = await interaction.guild.channels.create({
-          name: '👋-bienvenue',
+        welcomeChannel = await guild.channels.create({
+          name: 'bienvenue',
           type: ChannelType.GuildText,
-          parent: category.id,
+          reason: 'Setup automatique - Messages de bienvenue',
         });
       }
 
-      // Créer le salon de level up
-      let levelChannel = interaction.guild.channels.cache.find(
-        c => c.name === 'level-up' && c.parentId === category.id
-      );
-
-      if (!levelChannel) {
-        levelChannel = await interaction.guild.channels.create({
-          name: '🎉-level-up',
-          type: ChannelType.GuildText,
-          parent: category.id,
-        });
-      }
-
-      // Configurer la base de données
-      await Models.Guild.getOrCreate(interaction.guildId);
-
-      Models.Guild.update(interaction.guildId, {
-        mod_log_channel: modLogChannel.id,
-        welcome_enabled: 1,
-        welcome_channel: welcomeChannel.id,
-        goodbye_enabled: 1,
-        goodbye_channel: welcomeChannel.id,
-        levels_enabled: 1,
-        level_up_channel: levelChannel.id,
-        economy_enabled: 1,
+      // Update guild config in database
+      db.updateGuildConfig(guild.id, {
+        muteRole: muteRole.id,
+        logChannel: logChannel.id,
+        welcomeChannel: welcomeChannel.id,
       });
 
-      // Embed de confirmation
-      const successEmbed = CustomEmbedBuilder.success(
-        '✅ Configuration terminée !',
-        'Le bot a été configuré avec succès sur ce serveur.'
-      );
-
-      successEmbed.addFields(
-        {
-          name: '📁 Catégorie créée',
-          value: category.toString(),
-          inline: false,
-        },
-        {
-          name: '🔨 Logs de modération',
-          value: modLogChannel.toString(),
-          inline: true,
-        },
-        {
-          name: '👋 Bienvenue/Départ',
-          value: welcomeChannel.toString(),
-          inline: true,
-        },
-        {
-          name: '🎉 Level Up',
-          value: levelChannel.toString(),
-          inline: true,
-        },
-        {
-          name: '⚙️ Modules activés',
-          value: '✅ Économie\n✅ Niveaux\n✅ Bienvenue',
-          inline: false,
-        }
-      );
-
-      successEmbed.setFooter({ 
-        text: 'Utilisez /config view pour voir toute la configuration' 
-      });
+      // Send success embed
+      const successEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle('✅ Configuration terminée !')
+        .setDescription('Le bot a été configuré avec succès.')
+        .addFields(
+          { name: '🔇 Rôle Muted', value: `${muteRole}`, inline: true },
+          { name: '📋 Salon de logs', value: `${logChannel}`, inline: true },
+          { name: '👋 Salon de bienvenue', value: `${welcomeChannel}`, inline: true }
+        )
+        .setTimestamp()
+        .setFooter({ text: `Configuré par ${interaction.user.tag}` });
 
       await interaction.editReply({ embeds: [successEmbed] });
 
+      // Send log message
+      const logEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle('⚙️ Configuration du serveur')
+        .setDescription(`Configuration effectuée par ${interaction.user}`)
+        .addFields(
+          { name: 'Rôle Muted', value: `${muteRole}` },
+          { name: 'Salon de logs', value: `${logChannel}` },
+          { name: 'Salon de bienvenue', value: `${welcomeChannel}` }
+        )
+        .setTimestamp();
+
+      await logChannel.send({ embeds: [logEmbed] });
+
+      logger.info(`✅ Setup completed for ${guild.name} by ${interaction.user.tag}`);
+
     } catch (error) {
-      throw error;
+      logger.error('Error executing command setup:', error);
+      
+      const errorEmbed = new EmbedBuilder()
+        .setColor('#FF0000')
+        .setTitle('❌ Erreur')
+        .setDescription('Une erreur est survenue lors de la configuration.')
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [errorEmbed] });
     }
   },
 };

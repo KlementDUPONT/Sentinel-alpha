@@ -1,65 +1,48 @@
-import { Events } from 'discord.js';
-import Models from '../../database/models/index.js';
-import CustomEmbedBuilder from '../../utils/embedBuilder.js';
+import { EmbedBuilder } from 'discord.js';
 import logger from '../../utils/logger.js';
 
 export default {
-  name: Events.GuildMemberRemove,
+  name: 'guildMemberRemove',
+  category: 'member',
+
   async execute(member) {
     try {
-      logger.info(`👋 ${member.user.tag} left ${member.guild.name}`);
+      const { guild, user } = member;
 
-      // Récupérer la config de la guilde
-      const guildConfig = await Models.Guild.getOrCreate(member.guild.id);
-
-      // Vérifier si les messages d'au revoir sont activés
-      if (!guildConfig.goodbye_enabled || !guildConfig.goodbye_channel) return;
-
-      const goodbyeChannel = member.guild.channels.cache.get(guildConfig.goodbye_channel);
-      if (!goodbyeChannel) return;
-
-      // Créer le message personnalisé
-      const goodbyeMessage = guildConfig.goodbye_message
-        .replace('{user}', member.user.tag)
-        .replace('{username}', member.user.username)
-        .replace('{tag}', member.user.tag)
-        .replace('{server}', member.guild.name)
-        .replace('{memberCount}', member.guild.memberCount);
-
-      const embed = CustomEmbedBuilder.create(
-        `👋 Au revoir...`,
-        goodbyeMessage,
-        {
-          thumbnail: member.user.displayAvatarURL({ dynamic: true, size: 256 }),
-        }
-      );
-
-      // Calculer le temps passé sur le serveur
-      const joinedAt = member.joinedTimestamp;
-      if (joinedAt) {
-        const timeOnServer = Date.now() - joinedAt;
-        const days = Math.floor(timeOnServer / (1000 * 60 * 60 * 24));
-
-        embed.addFields({
-          name: '⏱️ Temps sur le serveur',
-          value: `${days} jour(s)`,
-          inline: true,
-        });
+      // Get guild config from database
+      const guildData = member.client.db.getGuild(guild.id);
+      
+      if (!guildData || !guildData.welcome_channel) {
+        return;
       }
 
-      embed.addFields({
-        name: '👥 Membres restants',
-        value: `${member.guild.memberCount}`,
-        inline: true,
-      });
+      // Get welcome channel
+      const welcomeChannel = guild.channels.cache.get(guildData.welcome_channel);
+      
+      if (!welcomeChannel) {
+        return;
+      }
 
-      embed.setFooter({ text: `ID: ${member.id}` });
+      // Create goodbye embed
+      const embed = new EmbedBuilder()
+        .setColor('#FF0000')
+        .setTitle('👋 Au revoir !')
+        .setDescription(`**${user.tag}** a quitté le serveur.`)
+        .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
+        .addFields(
+          { name: '👤 Utilisateur', value: user.tag, inline: true },
+          { name: '🆔 ID', value: user.id, inline: true },
+          { name: '📊 Membres', value: `${guild.memberCount}`, inline: true }
+        )
+        .setTimestamp()
+        .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
-      await goodbyeChannel.send({ embeds: [embed] });
+      await welcomeChannel.send({ embeds: [embed] });
+
+      logger.info(`👋 ${user.tag} left ${guild.name}`);
 
     } catch (error) {
-      logger.error('Error in guildMemberRemove event:');
-      logger.error(error);
+      logger.error('Error in guildMemberRemove event:', error);
     }
   },
 };

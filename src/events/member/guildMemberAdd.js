@@ -1,55 +1,63 @@
-import { Events } from 'discord.js';
-import Models from '../../database/models/index.js';
-import CustomEmbedBuilder from '../../utils/embedBuilder.js';
+import { EmbedBuilder } from 'discord.js';
 import logger from '../../utils/logger.js';
 
 export default {
-  name: Events.GuildMemberAdd,
+  name: 'guildMemberAdd',
+  category: 'member',
+
   async execute(member) {
     try {
-      logger.info(`👋 ${member.user.tag} joined ${member.guild.name}`);
+      const { guild, user } = member;
 
-      // Récupérer la config de la guilde
-      const guildConfig = await Models.Guild.getOrCreate(member.guild.id);
+      // Create user in database
+      member.client.db.createUser(user.id, guild.id);
 
-      // Vérifier si les messages de bienvenue sont activés
-      if (!guildConfig.welcome_enabled || !guildConfig.welcome_channel) return;
+      // Get guild config
+      const guildData = member.client.db.getGuild(guild.id);
+      
+      if (!guildData) {
+        return;
+      }
 
-      const welcomeChannel = member.guild.channels.cache.get(guildConfig.welcome_channel);
-      if (!welcomeChannel) return;
-
-      // Créer le message personnalisé
-      const welcomeMessage = guildConfig.welcome_message
-        .replace('{user}', `<@${member.id}>`)
-        .replace('{username}', member.user.username)
-        .replace('{tag}', member.user.tag)
-        .replace('{server}', member.guild.name)
-        .replace('{memberCount}', member.guild.memberCount);
-
-      const embed = CustomEmbedBuilder.create(
-        `👋 Bienvenue sur ${member.guild.name} !`,
-        welcomeMessage,
-        {
-          thumbnail: member.user.displayAvatarURL({ dynamic: true, size: 256 }),
+      // Auto-role
+      if (guildData.auto_role) {
+        const autoRole = guild.roles.cache.get(guildData.auto_role);
+        if (autoRole) {
+          try {
+            await member.roles.add(autoRole);
+            logger.info(`Added auto-role ${autoRole.name} to ${user.tag}`);
+          } catch (error) {
+            logger.error(`Failed to add auto-role to ${user.tag}:`, error);
+          }
         }
-      );
+      }
 
-      embed.addFields({
-        name: '📊 Informations',
-        value: [
-          `**Compte créé :** <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`,
-          `**Membre n°${member.guild.memberCount}**`,
-        ].join('\n'),
-        inline: false,
-      });
+      // Welcome message
+      if (guildData.welcome_channel) {
+        const welcomeChannel = guild.channels.cache.get(guildData.welcome_channel);
+        
+        if (welcomeChannel) {
+          const embed = new EmbedBuilder()
+            .setColor('#00FF00')
+            .setTitle('👋 Bienvenue !')
+            .setDescription(`Bienvenue ${user} sur **${guild.name}** !`)
+            .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
+            .addFields(
+              { name: '👤 Utilisateur', value: user.tag, inline: true },
+              { name: '🆔 ID', value: user.id, inline: true },
+              { name: '📊 Membres', value: `${guild.memberCount}`, inline: true }
+            )
+            .setTimestamp()
+            .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
-      embed.setFooter({ text: `ID: ${member.id}` });
+          await welcomeChannel.send({ embeds: [embed] });
+        }
+      }
 
-      await welcomeChannel.send({ embeds: [embed] });
+      logger.info(`👋 ${user.tag} joined ${guild.name}`);
 
     } catch (error) {
-      logger.error('Error in guildMemberAdd event:');
-      logger.error(error);
+      logger.error('Error in guildMemberAdd event:', error);
     }
   },
 };
