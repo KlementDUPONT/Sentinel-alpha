@@ -1,85 +1,127 @@
-import { Events, ActivityType } from 'discord.js';
+import { ActivityType } from 'discord.js';
 import logger from '../../utils/logger.js';
-import config from '../../config/config.js';
-import { STATUS_ACTIVITIES } from '../../config/constants.js';
 
 export default {
-  name: Events.ClientReady,
+  name: 'ready',
+  category: 'client',
   once: true,
+
   async execute(client) {
-    logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.info(`✅ ${client.user.tag} is now online!`);
-    logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.info(`📊 Guilds: ${client.guilds.cache.size}`);
-    logger.info(`👥 Users: ${client.users.cache.size}`);
-    logger.info(`📝 Commands: ${client.commands.size}`);
-    logger.info(`🎯 Events: ${client.eventHandler.getLoadedEvents().length}`);
-    logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    // Déployer les commandes automatiquement
     try {
-      if (client.commands.size > 0) {
-        logger.info('🔄 Auto-deploying slash commands...');
-        await client.commandHandler.deployCommands();
-      }
-    } catch (error) {
-      logger.error('❌ Failed to auto-deploy commands:');
-      logger.error(error);
-    }
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.info(`✅ ${client.user.tag} is now online!`);
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.info(`📊 Guilds: ${client.guilds.cache.size}`);
+      logger.info(`👥 Users: ${client.users.cache.size}`);
+      logger.info(`📝 Commands: ${client.commands.size}`);
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    // Configuration du statut
-    const activities = STATUS_ACTIVITIES.map(activity => ({
-      name: activity.name
-        .replace('{prefix}', config.bot.defaultPrefix)
-        .replace('{version}', config.bot.version)
-        .replace('{guilds}', client.guilds.cache.size)
-        .replace('{users}', client.users.cache.size),
-      type: activity.type,
-    }));
-
-    let currentActivity = 0;
-
-    // Définir le statut initial
-    client.user.setPresence({
-      activities: [activities[currentActivity]],
-      status: 'online',
-    });
-
-    // Changer le statut toutes les 30 secondes
-    setInterval(() => {
-      currentActivity = (currentActivity + 1) % activities.length;
+      // Set bot status
       client.user.setPresence({
-        activities: [activities[currentActivity]],
+        activities: [
+          {
+            name: `${client.guilds.cache.size} serveurs | /help`,
+            type: ActivityType.Watching,
+          },
+        ],
         status: 'online',
       });
-    }, 30000);
 
-    // Vérifier la santé de la base de données
-    const dbHealth = client.databaseHandler.healthCheck();
-    if (dbHealth.healthy) {
-      logger.info('💾 Database: Healthy');
-    } else {
-      logger.error('💾 Database: Unhealthy');
-      logger.error(dbHealth.error);
-    }
+      // Auto-deploy slash commands
+      await deployCommands(client);
 
-    // Statistiques de la base de données
-    try {
-      const dbStats = client.databaseHandler.getStats();
-      if (dbStats) {
-        logger.info('📊 Database Stats:');
-        logger.info(`   • Guilds: ${dbStats.guilds}`);
-        logger.info(`   • Users: ${dbStats.users}`);
-        logger.info(`   • Active Warns: ${dbStats.warns}`);
-        logger.info(`   • Open Tickets: ${dbStats.tickets}`);
-        logger.info(`   • Active Giveaways: ${dbStats.giveaways}`);
-      }
+      // Initialize database for all guilds
+      await initializeGuilds(client);
+
+      // Check database health
+      checkDatabaseHealth(client);
+
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.info('🎉 Sentinel is ready to serve!');
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     } catch (error) {
-      logger.error('Failed to get database stats:', error);
+      logger.error('❌ Error executing event clientReady:', error);
     }
-
-    logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.info(`🎉 ${config.bot.name} is ready to serve!`);
-    logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   },
 };
+
+async function deployCommands(client) {
+  try {
+    logger.info('🔄 Auto-deploying slash commands...');
+
+    const commands = Array.from(client.commands.values()).map((cmd) => ({
+      name: cmd.data.name,
+      description: cmd.data.description,
+      options: cmd.data.options || [],
+      default_member_permissions: cmd.data.default_member_permissions,
+      dm_permission: cmd.data.dm_permission ?? false,
+    }));
+
+    logger.info(`🔄 Deploying ${commands.length} slash commands...`);
+
+    // Deploy to all guilds
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        await guild.commands.set(commands);
+      } catch (error) {
+        logger.error(`Failed to deploy commands to guild ${guild.name}:`, error);
+      }
+    }
+
+    logger.info('✅ Successfully deployed guild commands');
+  } catch (error) {
+    logger.error('Failed to deploy commands:', error);
+  }
+}
+
+async function initializeGuilds(client) {
+  try {
+    const db = client.db;
+
+    for (const guild of client.guilds.cache.values()) {
+      // Check if guild exists in database
+      const existingGuild = db.getGuild(guild.id);
+
+      if (!existingGuild) {
+        // Create guild entry
+        db.createGuild(guild.id, guild.name);
+        logger.info(`📝 Registered new guild: ${guild.name} (${guild.id})`);
+      }
+
+      // Initialize users for this guild
+      for (const member of guild.members.cache.values()) {
+        if (!member.user.bot) {
+          const existingUser = db.getUser(member.id, guild.id);
+          if (!existingUser) {
+            db.createUser(member.id, guild.id);
+          }
+        }
+      }
+    }
+
+    logger.info('✅ All guilds initialized');
+  } catch (error) {
+    logger.error('Failed to initialize guilds:', error);
+  }
+}
+
+function checkDatabaseHealth(client) {
+  try {
+    const db = client.db;
+    const stats = db.getStats();
+
+    if (stats) {
+      logger.info('💾 Database: Healthy');
+      logger.info(`   - Guilds: ${stats.guilds}`);
+      logger.info(`   - Users: ${stats.users}`);
+      logger.info(`   - Active warns: ${stats.warns}`);
+      logger.info(`   - Tickets: ${stats.tickets.total} (${stats.tickets.open} open, ${stats.tickets.closed} closed)`);
+      logger.info(`   - Economy: ${stats.economy.totalBalance} coins in circulation`);
+    } else {
+      logger.warn('⚠️ Database stats unavailable');
+    }
+  } catch (error) {
+    logger.error('Failed to get database stats:', error);
+  }
+}
