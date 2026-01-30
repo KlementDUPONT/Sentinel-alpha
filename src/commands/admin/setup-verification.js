@@ -23,6 +23,8 @@ export default {
 
   async execute(interaction) {
     try {
+      await interaction.deferReply({ ephemeral: true });
+
       const channel = interaction.options.getChannel('channel');
       const role = interaction.options.getRole('role');
 
@@ -34,7 +36,7 @@ export default {
           .setDescription('I cannot manage this role as it is higher than my highest role.')
           .setTimestamp();
         
-        return interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        return interaction.editReply({ embeds: [errorEmbed] });
       }
 
       // Vérifier que le rôle n'est pas @everyone
@@ -45,7 +47,7 @@ export default {
           .setDescription('You cannot use @everyone as verification role.')
           .setTimestamp();
         
-        return interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        return interaction.editReply({ embeds: [errorEmbed] });
       }
 
       const db = interaction.client.db;
@@ -57,7 +59,7 @@ export default {
           .setDescription('Database is not available.')
           .setTimestamp();
         
-        return interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        return interaction.editReply({ embeds: [errorEmbed] });
       }
 
       // S'assurer que la guild existe dans la DB
@@ -66,17 +68,17 @@ export default {
         db.createGuild(interaction.guildId, interaction.guild.name);
       }
 
-      // Mettre à jour la configuration
+      // Mettre à jour la configuration via DatabaseHandler
       const success = db.updateVerification(interaction.guildId, channel.id, role.id);
 
       if (!success) {
         const errorEmbed = new EmbedBuilder()
           .setColor('#FF0000')
           .setTitle('❌ Error')
-          .setDescription('Failed to update verification settings. Check bot logs.')
+          .setDescription('Failed to update verification settings.\n\n**Try running `/db-setup` first**, then retry this command.')
           .setTimestamp();
         
-        return interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        return interaction.editReply({ embeds: [errorEmbed] });
       }
 
       const embed = new EmbedBuilder()
@@ -90,7 +92,7 @@ export default {
         .setFooter({ text: `Configured by ${interaction.user.tag}` })
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
       console.error('Error in setup-verification:', error);
@@ -99,11 +101,11 @@ export default {
         .setColor('#FF0000')
         .setTitle('❌ Error')
         .setDescription('An error occurred while setting up verification.')
-        .addFields({ name: 'Error', value: error.message })
+        .addFields({ name: 'Error Details', value: error.message || 'Unknown error' })
         .setTimestamp();
       
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+      if (interaction.deferred) {
+        await interaction.editReply({ embeds: [errorEmbed] });
       }
     }
   }

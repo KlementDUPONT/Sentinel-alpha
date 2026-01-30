@@ -325,6 +325,78 @@ class DatabaseHandler {
       LIMIT ?
     `).all(guildId, limit);
   }
+
+  // Verification system methods
+  addVerificationColumns() {
+    try {
+      const db = dbConnection.getDatabase();
+      
+      // Vérifier si les colonnes existent
+      const tableInfo = db.prepare('PRAGMA table_info(guilds)').all();
+      const columnNames = tableInfo.map(col => col.name);
+
+      let added = false;
+
+      if (!columnNames.includes('verification_channel')) {
+        db.prepare('ALTER TABLE guilds ADD COLUMN verification_channel TEXT').run();
+        logger.info('✅ Added verification_channel column');
+        added = true;
+      }
+
+      if (!columnNames.includes('verification_role')) {
+        db.prepare('ALTER TABLE guilds ADD COLUMN verification_role TEXT').run();
+        logger.info('✅ Added verification_role column');
+        added = true;
+      }
+
+      if (!added) {
+        logger.info('ℹ️ Verification columns already exist');
+      }
+
+      return true;
+    } catch (error) {
+      logger.error('Error adding verification columns:', error);
+      return false;
+    }
+  }
+
+  updateVerification(guildId, channelId, roleId) {
+    try {
+      const db = dbConnection.getDatabase();
+      
+      // S'assurer que les colonnes existent
+      this.addVerificationColumns();
+      
+      const stmt = db.prepare(`
+        UPDATE guilds 
+        SET verification_channel = ?, verification_role = ? 
+        WHERE guild_id = ?
+      `);
+      stmt.run(channelId, roleId, guildId);
+      
+      logger.info(`✅ Updated verification for guild ${guildId}`);
+      return true;
+    } catch (error) {
+      logger.error('Error updating verification:', error);
+      return false;
+    }
+  }
+
+  getVerification(guildId) {
+    try {
+      const db = dbConnection.getDatabase();
+      
+      const stmt = db.prepare(`
+        SELECT verification_channel, verification_role 
+        FROM guilds 
+        WHERE guild_id = ?
+      `);
+      return stmt.get(guildId);
+    } catch (error) {
+      logger.error('Error getting verification:', error);
+      return null;
+    }
+  }
 }
 
 export default new DatabaseHandler();
