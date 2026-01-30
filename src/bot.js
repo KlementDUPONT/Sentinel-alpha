@@ -24,6 +24,39 @@ try {
   };
 }
 
+// Keep-Alive system (empêche Render de se mettre en veille)
+class KeepAlive {
+  constructor(url) {
+    this.url = url;
+    this.interval = null;
+  }
+
+  start() {
+    // Ping toutes les 10 minutes (600000 ms)
+    this.interval = setInterval(async () => {
+      try {
+        const response = await fetch(this.url);
+        if (response.ok) {
+          logger.info('💓 Keep-alive ping successful');
+        } else {
+          logger.warn('⚠️ Keep-alive ping failed: ' + response.status);
+        }
+      } catch (error) {
+        logger.error('❌ Keep-alive error:', error.message);
+      }
+    }, 10 * 60 * 1000); // 10 minutes
+
+    logger.info('🔄 Keep-alive system started (ping every 10 minutes)');
+  }
+
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      logger.info('🛑 Keep-alive system stopped');
+    }
+  }
+}
+
 class SentinelBot {
   constructor() {
     this.client = new Client({
@@ -55,6 +88,7 @@ class SentinelBot {
     
     this.isInitialized = false;
     this.healthServer = null;
+    this.keepAlive = null;
   }
 
   setupHealthCheck() {
@@ -69,7 +103,9 @@ class SentinelBot {
         uptime: process.uptime(),
         timestamp: Date.now(),
         port: port,
-        botReady: this.client.isReady()
+        botReady: this.client.isReady(),
+        guilds: this.client.guilds.cache.size,
+        users: this.client.users.cache.size
       });
     });
 
@@ -78,7 +114,8 @@ class SentinelBot {
         name: 'Sentinel Bot',
         version: config.version,
         status: this.client.isReady() ? 'online' : 'starting',
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        guilds: this.client.guilds.cache.size
       });
     });
 
@@ -95,6 +132,24 @@ class SentinelBot {
 
     this.healthServer = server;
     return server;
+  }
+
+  setupKeepAlive() {
+    // Récupérer l'URL depuis les variables d'environnement
+    const renderUrl = process.env.RENDER_EXTERNAL_URL;
+    const customUrl = process.env.BOT_URL;
+    
+    const baseUrl = renderUrl || customUrl;
+    
+    if (baseUrl) {
+      this.keepAlive = new KeepAlive(`${baseUrl}/health`);
+      this.keepAlive.start();
+      logger.info('🔄 Keep-alive enabled for ' + baseUrl);
+    } else {
+      logger.warn('⚠️ No external URL found (RENDER_EXTERNAL_URL or BOT_URL)');
+      logger.warn('⚠️ Keep-alive disabled - bot may sleep on free tier');
+      logger.info('💡 Tip: Use UptimeRobot to ping your bot and keep it awake');
+    }
   }
 
   async initialize() {
@@ -180,7 +235,7 @@ class SentinelBot {
         // Nettoyer le token (enlever espaces et retours à la ligne)
         const cleanToken = config.token.trim();
         
-        // ✨ NOUVEAU : Ajouter un timeout de 30 secondes
+        // Ajouter un timeout de 30 secondes
         const loginTimeout = setTimeout(() => {
           logger.error('');
           logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -195,7 +250,7 @@ class SentinelBot {
           logger.error('   → Go to "Bot" tab');
           logger.error('   → Click "Reset Token"');
           logger.error('   → Copy the NEW token');
-          logger.error('   → Update DISCORD_TOKEN in Railway');
+          logger.error('   → Update DISCORD_TOKEN in your hosting platform');
           logger.error('');
           logger.error('2️⃣  MISSING INTENTS');
           logger.error('   → Enable these in Discord Developer Portal:');
@@ -235,7 +290,7 @@ class SentinelBot {
           logger.error('3. Go to "Bot" tab');
           logger.error('4. Click "Reset Token"');
           logger.error('5. Copy the NEW token');
-          logger.error('6. Update DISCORD_TOKEN in Railway variables');
+          logger.error('6. Update DISCORD_TOKEN in your hosting platform');
           logger.error('');
           logger.error('Also check that these intents are enabled:');
           logger.error('- Presence Intent');
@@ -265,6 +320,10 @@ class SentinelBot {
     logger.info('🧹 Cleaning up resources...');
     
     try {
+      if (this.keepAlive) {
+        this.keepAlive.stop();
+      }
+      
       if (this.client && this.client.isReady()) {
         this.client.destroy();
         logger.info('✅ Discord client destroyed');
@@ -334,10 +393,13 @@ async function startBot() {
     logger.info('🌐 Step 1: Starting health check server...');
     bot.setupHealthCheck();
 
-    logger.info('⏳ Step 2: Waiting 2 seconds before Discord connection...');
+    logger.info('🔄 Step 2: Setting up keep-alive system...');
+    bot.setupKeepAlive();
+
+    logger.info('⏳ Step 3: Waiting 2 seconds before Discord connection...');
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    logger.info('🤖 Step 3: Initializing Discord bot...');
+    logger.info('🤖 Step 4: Initializing Discord bot...');
     await bot.initialize();
 
   } catch (error) {
