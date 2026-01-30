@@ -45,15 +45,18 @@ export default {
       // Sauvegarder dans la base de données
       const db = interaction.client.db;
       
-      if (!db || !db.db) {
+      if (!db) {
         return interaction.reply({
           content: '❌ Database is not available. Please contact an administrator.',
           ephemeral: true
         });
       }
 
+      // Tester différentes façons d'accéder à la DB
+      let database = db.db || db.database || db.connection || db;
+
       // Vérifier que les colonnes existent
-      const tableInfo = db.db.prepare('PRAGMA table_info(guilds)').all();
+      const tableInfo = database.prepare('PRAGMA table_info(guilds)').all();
       const columnNames = tableInfo.map(col => col.name);
 
       if (!columnNames.includes('verification_channel') || !columnNames.includes('verification_role')) {
@@ -63,7 +66,7 @@ export default {
         });
       }
 
-      db.db.prepare(`
+      database.prepare(`
         UPDATE guilds 
         SET verification_channel = ?, verification_role = ? 
         WHERE guild_id = ?

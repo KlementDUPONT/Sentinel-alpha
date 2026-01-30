@@ -14,28 +14,50 @@ export default {
 
       const db = interaction.client.db;
 
-      if (!db || !db.db) {
-        return interaction.editReply('❌ Database is not available.');
+      if (!db) {
+        return interaction.editReply('❌ Database handler is not available.');
+      }
+
+      // Tester différentes façons d'accéder à la DB
+      let database = db.db || db.database || db.connection || db;
+
+      if (!database) {
+        return interaction.editReply('❌ Database connection is not available. Please contact an administrator.');
       }
 
       // Vérifier les colonnes existantes
-      const tableInfo = db.db.prepare('PRAGMA table_info(guilds)').all();
+      let tableInfo;
+      try {
+        tableInfo = database.prepare('PRAGMA table_info(guilds)').all();
+      } catch (error) {
+        console.error('Error accessing database:', error);
+        return interaction.editReply('❌ Cannot access database. Error: ' + error.message);
+      }
+
       const columnNames = tableInfo.map(col => col.name);
 
       let changes = [];
 
       // Ajouter verification_channel si elle n'existe pas
       if (!columnNames.includes('verification_channel')) {
-        db.db.prepare('ALTER TABLE guilds ADD COLUMN verification_channel TEXT').run();
-        changes.push('✅ Added `verification_channel`');
+        try {
+          database.prepare('ALTER TABLE guilds ADD COLUMN verification_channel TEXT').run();
+          changes.push('✅ Added `verification_channel`');
+        } catch (error) {
+          changes.push('❌ Failed to add `verification_channel`: ' + error.message);
+        }
       } else {
         changes.push('ℹ️ `verification_channel` already exists');
       }
 
       // Ajouter verification_role si elle n'existe pas
       if (!columnNames.includes('verification_role')) {
-        db.db.prepare('ALTER TABLE guilds ADD COLUMN verification_role TEXT').run();
-        changes.push('✅ Added `verification_role`');
+        try {
+          database.prepare('ALTER TABLE guilds ADD COLUMN verification_role TEXT').run();
+          changes.push('✅ Added `verification_role`');
+        } catch (error) {
+          changes.push('❌ Failed to add `verification_role`: ' + error.message);
+        }
       } else {
         changes.push('ℹ️ `verification_role` already exists');
       }
@@ -53,5 +75,3 @@ export default {
     }
   }
 };
-
-// or...
