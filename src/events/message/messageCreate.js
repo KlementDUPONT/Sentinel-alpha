@@ -1,60 +1,67 @@
-import { Events } from 'discord.js';
-import Models from '../../database/models/index.js';
-import CustomEmbedBuilder from '../../utils/embedBuilder.js';
-import { LIMITS } from '../../config/constants.js';
 import logger from '../../utils/logger.js';
 
 export default {
-  name: Events.MessageCreate,
+  name: 'messageCreate',
+  category: 'message',
+
   async execute(message) {
-    // Ignorer les bots et les DMs
-    if (message.author.bot || !message.guild) return;
+    // Ignorer les bots
+    if (message.author.bot) return;
+    
+    // Ignorer les MPs
+    if (!message.guild) return;
 
     try {
-      // Récupérer la config de la guilde
-      const guildConfig = await Models.Guild.getOrCreate(message.guild.id);
+      const db = message.client.db;
+      
+      if (!db) {
+        logger.warn('Database not available in messageCreate event');
+        return;
+      }
 
-      // Vérifier si le système de niveaux est activé
-      if (!guildConfig.levels_enabled) return;
+      // S'assurer que le serveur existe dans la DB
+      let guildData = db.getGuild(message.guild.id);
+      if (!guildData) {
+        db.createGuild(message.guild.id, message.guild.name);
+        guildData = db.getGuild(message.guild.id);
+      }
 
-      // Vérifier le cooldown XP
-      const canGainXP = Models.User.canGainXP(message.author.id, message.guild.id);
-      if (!canGainXP) return;
+      // S'assurer que l'utilisateur existe dans la DB
+      let userData = db.getUser(message.author.id, message.guild.id);
+      if (!userData) {
+        db.createUser(message.author.id, message.guild.id);
+        userData = db.getUser(message.author.id, message.guild.id);
+      }
 
-      // Calculer l'XP à donner
-      const xpAmount = Math.floor(
-        Math.random() * (LIMITS.XP_PER_MESSAGE.max - LIMITS.XP_PER_MESSAGE.min + 1)
-      ) + LIMITS.XP_PER_MESSAGE.min;
+      // Système XP (gain entre 15 et 25 XP par message)
+      const xpGain = Math.floor(Math.random() * 11) + 15; // 15-25 XP
+      const newXp = (userData.xp || 0) + xpGain;
+      const currentLevel = userData.level || 0;
+      
+      // Calculer le niveau (100 XP par niveau)
+      const xpPerLevel = 100;
+      const newLevel = Math.floor(newXp / xpPerLevel);
 
-      // Ajouter l'XP
-      const { leveledUp, newLevel } = Models.User.addXP(
-        message.author.id,
-        message.guild.id,
-        xpAmount
-      );
+      // Mettre à jour l'XP et le niveau
+      db.updateUserLevel(message.author.id, message.guild.id, {
+        xp: newXp,
+        level: newLevel
+      });
 
-      // Si l'utilisateur a monté de niveau
-      if (leveledUp && guildConfig.level_up_channel) {
-        const levelUpChannel = message.guild.channels.cache.get(guildConfig.level_up_channel);
+      // Si level up, envoyer un message
+      if (newLevel > currentLevel) {
+        const levelUpMessage = `🎉 Congratulations ${message.author}! You've reached **Level ${newLevel}**!`;
         
-        if (levelUpChannel) {
-          const levelMessage = guildConfig.level_up_message
-            .replace('{user}', `<@${message.author.id}>`)
-            .replace('{level}', newLevel)
-            .replace('{server}', message.guild.name);
-
-          const embed = CustomEmbedBuilder.success(
-            '🎉 Level Up!',
-            levelMessage
-          );
-
-          await levelUpChannel.send({ embeds: [embed] });
+        try {
+          await message.channel.send(levelUpMessage);
+        } catch (sendError) {
+          logger.error('Failed to send level up message:', sendError);
         }
       }
 
     } catch (error) {
       logger.error('Error in messageCreate event (XP system):');
-      logger.error(error);
+      logger.error(error.message, { stack: error.stack });
     }
-  },
+  }
 };
