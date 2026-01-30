@@ -1,79 +1,54 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
 export default {
   data: new SlashCommandBuilder()
-    .setName('setup-verification')
-    .setDescription('Configure the verification system')
-    .addChannelOption(option =>
-      option
-        .setName('channel')
-        .setDescription('Verification channel')
-        .addChannelTypes(ChannelType.GuildText)
-        .setRequired(true)
-    )
-    .addRoleOption(option =>
-      option
-        .setName('role')
-        .setDescription('Role to give after verification')
-        .setRequired(true)
-    )
+    .setName('db-setup')
+    .setDescription('Setup missing database columns (admin only)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   category: 'admin',
 
   async execute(interaction) {
     try {
-      const channel = interaction.options.getChannel('channel');
-      const role = interaction.options.getRole('role');
+      await interaction.deferReply({ ephemeral: true });
 
-      // Vérifier que le bot peut gérer le rôle
-      if (role.position >= interaction.guild.members.me.roles.highest.position) {
-        return interaction.reply({
-          content: '❌ I cannot manage this role as it is higher than my highest role.',
-          ephemeral: true
-        });
-      }
-
-      // Vérifier que le rôle n'est pas @everyone
-      if (role.id === interaction.guild.id) {
-        return interaction.reply({
-          content: '❌ You cannot use @everyone as verification role.',
-          ephemeral: true
-        });
-      }
-
-      // Sauvegarder dans la base de données
       const db = interaction.client.db;
-      
+
       if (!db || !db.db) {
-        return interaction.reply({
-          content: '❌ Database is not available. Please contact an administrator.',
-          ephemeral: true
-        });
+        return interaction.editReply('❌ Database is not available.');
       }
 
-      db.db.prepare(`
-        UPDATE guilds 
-        SET verification_channel = ?, verification_role = ? 
-        WHERE guild_id = ?
-      `).run(channel.id, role.id, interaction.guildId);
+      // Vérifier les colonnes existantes
+      const tableInfo = db.db.prepare('PRAGMA table_info(guilds)').all();
+      const columnNames = tableInfo.map(col => col.name);
 
-      await interaction.reply({
-        content: `✅ Verification system configured!\n\n` +
-                 `📌 **Channel:** ${channel}\n` +
-                 `🎭 **Role:** ${role}\n\n` +
-                 `Members who use \`/verify\` in ${channel} will receive the ${role} role.`,
-        ephemeral: true
+      let changes = [];
+
+      // Ajouter verification_channel si elle n'existe pas
+      if (!columnNames.includes('verification_channel')) {
+        db.db.prepare('ALTER TABLE guilds ADD COLUMN verification_channel TEXT').run();
+        changes.push('✅ Added `verification_channel`');
+      } else {
+        changes.push('ℹ️ `verification_channel` already exists');
+      }
+
+      // Ajouter verification_role si elle n'existe pas
+      if (!columnNames.includes('verification_role')) {
+        db.db.prepare('ALTER TABLE guilds ADD COLUMN verification_role TEXT').run();
+        changes.push('✅ Added `verification_role`');
+      } else {
+        changes.push('ℹ️ `verification_role` already exists');
+      }
+
+      await interaction.editReply({
+        content: '**🔧 Database Setup Complete**\n\n' + changes.join('\n') + '\n\n**Next step:** Use `/setup-verification` to configure the system.'
       });
 
     } catch (error) {
-      console.error('Error in setup-verification:', error);
+      console.error('Error in db-setup:', error);
       
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: '❌ An error occurred while setting up verification.',
-          ephemeral: true
-        });
+      if (interaction.deferred) {
+        await interaction.editReply('❌ An error occurred during database setup: ' + error.message);
       }
     }
   }

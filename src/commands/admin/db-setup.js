@@ -41,14 +41,14 @@ export default {
       }
 
       await interaction.editReply({
-        content: '**Database Setup Complete**\n\n' + changes.join('\n')
+        content: '**🔧 Database Setup Complete**\n\n' + changes.join('\n') + '\n\n**Next step:** Use `/setup-verification` to configure the system.'
       });
 
     } catch (error) {
       console.error('Error in db-setup:', error);
       
       if (interaction.deferred) {
-        await interaction.editReply('❌ An error occurred during database setup.');
+        await interaction.editReply('❌ An error occurred during database setup: ' + error.message);
       }
     }
   }
