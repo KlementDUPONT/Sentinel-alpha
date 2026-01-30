@@ -22,8 +22,11 @@ export default {
   category: 'admin',
 
   async execute(interaction) {
-    // DEFER IMMÉDIATEMENT - AVANT TOUT
-    await interaction.deferReply({ ephemeral: true });
+    // RÉPONDRE IMMÉDIATEMENT (pas defer)
+    await interaction.reply({
+      content: '⏳ Setting up verification system...',
+      flags: 64
+    });
 
     try {
       const channel = interaction.options.getChannel('channel');
@@ -37,7 +40,7 @@ export default {
           .setDescription('I cannot manage this role as it is higher than my highest role.')
           .setTimestamp();
         
-        return interaction.editReply({ embeds: [errorEmbed] });
+        return interaction.editReply({ content: null, embeds: [errorEmbed] });
       }
 
       // Vérifier que le rôle n'est pas @everyone
@@ -48,7 +51,7 @@ export default {
           .setDescription('You cannot use @everyone as verification role.')
           .setTimestamp();
         
-        return interaction.editReply({ embeds: [errorEmbed] });
+        return interaction.editReply({ content: null, embeds: [errorEmbed] });
       }
 
       const db = interaction.client.db;
@@ -60,7 +63,7 @@ export default {
           .setDescription('Database is not available.')
           .setTimestamp();
         
-        return interaction.editReply({ embeds: [errorEmbed] });
+        return interaction.editReply({ content: null, embeds: [errorEmbed] });
       }
 
       // S'assurer que la guild existe dans la DB
@@ -79,7 +82,7 @@ export default {
           .setDescription('Failed to update verification settings.\n\n**Try running `/db-setup` first**, then retry this command.')
           .setTimestamp();
         
-        return interaction.editReply({ embeds: [errorEmbed] });
+        return interaction.editReply({ content: null, embeds: [errorEmbed] });
       }
 
       const embed = new EmbedBuilder()
@@ -93,7 +96,7 @@ export default {
         .setFooter({ text: `Configured by ${interaction.user.tag}` })
         .setTimestamp();
 
-      await interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ content: null, embeds: [embed] });
 
     } catch (error) {
       console.error('Error in setup-verification:', error);
@@ -106,7 +109,7 @@ export default {
         .setTimestamp();
       
       try {
-        await interaction.editReply({ embeds: [errorEmbed] });
+        await interaction.editReply({ content: null, embeds: [errorEmbed] });
       } catch (replyError) {
         console.error('Failed to send error message:', replyError);
       }
