@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentinel Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #0f172a; }
+        .card-glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="text-slate-200 font-sans">
+
+<nav class="flex items-center justify-between px-8 py-4 bg-slate-900 border-b border-slate-800">
+    <div class="flex items-center gap-3">
+        <img src="<%= bot.displayAvatarURL() %>" class="w-10 h-10 rounded-full shadow-lg border-2 border-blue-500">
+        <span class="text-xl font-bold tracking-tight text-white">Sentinel <span class="text-blue-500">BETA</span></span>
+    </div>
+    <div class="flex items-center gap-4">
+            <span class="bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-xs font-mono border border-green-500/20">
+                <i class="fas fa-circle animate-pulse mr-2"></i>Live on Render
+            </span>
+        <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all">
+            Logout
+        </button>
+    </div>
+</nav>
+
+<main class="max-w-6xl mx-auto p-8">
+    <header class="mb-10 text-center">
+        <h1 class="text-4xl font-extrabold text-white mb-2">Global Statistics</h1>
+        <p class="text-slate-400">Monitoring real-time performance and reach.</p>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="card-glass p-6 rounded-2xl shadow-xl transition-transform hover:scale-105">
+            <div class="flex items-center gap-4">
+                <div class="p-4 bg-blue-500/20 rounded-xl text-blue-400">
+                    <i class="fas fa-server text-2xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-400 text-sm">Servers Connected</p>
+                    <h2 class="text-3xl font-bold text-white"><%= stats.guilds %></h2>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-glass p-6 rounded-2xl shadow-xl transition-transform hover:scale-105">
+            <div class="flex items-center gap-4">
+                <div class="p-4 bg-purple-500/20 rounded-xl text-purple-400">
+                    <i class="fas fa-users text-2xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-400 text-sm">Total Users</p>
+                    <h2 class="text-3xl font-bold text-white"><%= stats.users %></h2>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-glass p-6 rounded-2xl shadow-xl transition-transform hover:scale-105">
+            <div class="flex items-center gap-4">
+                <div class="p-4 bg-red-500/20 rounded-xl text-red-400">
+                    <i class="fas fa-shield-alt text-2xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-400 text-sm">Active Warnings</p>
+                    <h2 class="text-3xl font-bold text-white"><%= stats.warns %></h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-12 p-6 bg-slate-900 rounded-2xl border border-slate-800">
+        <h3 class="text-lg font-semibold text-white mb-4"><i class="fas fa-terminal mr-2 text-blue-500"></i>System Logs</h3>
+        <div class="bg-black/50 p-4 rounded-lg font-mono text-sm text-blue-300">
+            [SYSTEM] sentinel-bot@2.0.1-beta.1 initialized successfully.<br>
+            [DB] SQLite connection stable (WAL Mode).<br>
+            [WEB] Dashboard accessible at port 8000.
+        </div>
+    </div>
+</main>
+
+<footer class="mt-20 py-8 text-center text-slate-500 border-t border-slate-900">
+    Sentinel v2.0.1-beta.1 — Clément DUPONT &copy; 2026
+</footer>
+
+</body>
+</html>
