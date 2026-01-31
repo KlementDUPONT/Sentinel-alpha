@@ -5,8 +5,8 @@ import config from './config/config.js';
 import databaseHandler from './handlers/DatabaseHandler.js';
 import EventHandler from './handlers/EventHandler.js';
 import CommandHandler from './handlers/CommandHandler.js';
+import ErrorHandler from './handlers/ErrorHandler.js'; // Import ajouté
 import express from 'express';
-import ErrorHandler from './handlers/ErrorHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,8 +27,7 @@ try {
 
 class SentinelBot {
     constructor() {
-        this.errorHandler = new ErrorHandler(this.client);
-        this.client.errorHandler = this.errorHandler; // Pour y accéder partout
+        // 1. On crée le client d'abord
         this.client = new Client({
             intents: [
                 GatewayIntentBits.Guilds,
@@ -47,11 +46,16 @@ class SentinelBot {
             ],
         });
 
+        // 2. On attache les propriétés maintenant que this.client existe
         this.config = config;
         this.client.config = config;
         this.client.commands = new Collection();
         this.client.cooldowns = new Map();
         this.client.db = databaseHandler;
+
+        // Initialisation du ErrorHandler
+        this.errorHandler = new ErrorHandler(this.client);
+        this.client.errorHandler = this.errorHandler;
 
         this.eventHandler = new EventHandler(this.client);
         this.commandHandler = new CommandHandler(this.client);
@@ -88,7 +92,7 @@ class SentinelBot {
         try {
             logger.info('🚀 Starting Sentinel Bot Initialization...');
 
-            // Step 1: Database (Must be first)
+            // Step 1: Database
             logger.info('📦 Step 1/4: Database initialization');
             await databaseHandler.initialize(config.databasePath);
 
