@@ -1,118 +1,33 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } from 'discord.js';
+// src/commands/admin/setup-verification.js
+import { SlashCommandBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 
-export default {
-  data: new SlashCommandBuilder()
+export const data = new SlashCommandBuilder()
     .setName('setup-verification')
-    .setDescription('Configure the verification system')
-    .addChannelOption(option =>
-      option
-        .setName('channel')
-        .setDescription('Verification channel')
-        .addChannelTypes(ChannelType.GuildText)
-        .setRequired(true)
-    )
-    .addRoleOption(option =>
-      option
-        .setName('role')
-        .setDescription('Role to give after verification')
-        .setRequired(true)
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDescription('Configure le système de vérification')
+    .addChannelOption(option => option.setName('channel').setDescription('Salon de vérification').setRequired(true))
+    .addRoleOption(option => option.setName('role').setDescription('Rôle à donner').setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
-  category: 'admin',
+export async function execute(interaction) {
+    const channel = interaction.options.getChannel('channel');
+    const role = interaction.options.getRole('role');
 
-  async execute(interaction) {
-    // RÉPONDRE IMMÉDIATEMENT (pas defer)
-    await interaction.reply({
-      content: '⏳ Setting up verification system...',
-      flags: 64
-    });
+    // Sauvegarde en DB
+    interaction.client.db.updateVerification(interaction.guild.id, channel.id, role.id);
 
-    try {
-      const channel = interaction.options.getChannel('channel');
-      const role = interaction.options.getRole('role');
+    const embed = new EmbedBuilder()
+        .setTitle('Vérification Requise')
+        .setDescription('Cliquez sur le bouton ci-dessous pour accéder au serveur.')
+        .setColor('#3b82f6');
 
-      // Vérifier que le bot peut gérer le rôle
-      if (role.position >= interaction.guild.members.me.roles.highest.position) {
-        const errorEmbed = new EmbedBuilder()
-          .setColor('#FF0000')
-          .setTitle('❌ Error')
-          .setDescription('I cannot manage this role as it is higher than my highest role.')
-          .setTimestamp();
-        
-        return interaction.editReply({ content: null, embeds: [errorEmbed] });
-      }
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('verify_user')
+            .setLabel('Se vérifier')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅')
+    );
 
-      // Vérifier que le rôle n'est pas @everyone
-      if (role.id === interaction.guild.id) {
-        const errorEmbed = new EmbedBuilder()
-          .setColor('#FF0000')
-          .setTitle('❌ Error')
-          .setDescription('You cannot use @everyone as verification role.')
-          .setTimestamp();
-        
-        return interaction.editReply({ content: null, embeds: [errorEmbed] });
-      }
-
-      const db = interaction.client.db;
-      
-      if (!db) {
-        const errorEmbed = new EmbedBuilder()
-          .setColor('#FF0000')
-          .setTitle('❌ Error')
-          .setDescription('Database is not available.')
-          .setTimestamp();
-        
-        return interaction.editReply({ content: null, embeds: [errorEmbed] });
-      }
-
-      // S'assurer que la guild existe dans la DB
-      let guildData = db.getGuild(interaction.guildId);
-      if (!guildData) {
-        db.createGuild(interaction.guildId, interaction.guild.name);
-      }
-
-      // Mettre à jour la configuration via DatabaseHandler
-      const success = db.updateVerification(interaction.guildId, channel.id, role.id);
-
-      if (!success) {
-        const errorEmbed = new EmbedBuilder()
-          .setColor('#FF0000')
-          .setTitle('❌ Error')
-          .setDescription('Failed to update verification settings.\n\n**Try running `/db-setup` first**, then retry this command.')
-          .setTimestamp();
-        
-        return interaction.editReply({ content: null, embeds: [errorEmbed] });
-      }
-
-      const embed = new EmbedBuilder()
-        .setColor('#00FF00')
-        .setTitle('✅ Verification System Configured')
-        .setDescription('The verification system has been set up successfully!')
-        .addFields(
-          { name: '📌 Verification Channel', value: `${channel}`, inline: true },
-          { name: '🎭 Verification Role', value: `${role}`, inline: true }
-        )
-        .setFooter({ text: `Configured by ${interaction.user.tag}` })
-        .setTimestamp();
-
-      await interaction.editReply({ content: null, embeds: [embed] });
-
-    } catch (error) {
-      console.error('Error in setup-verification:', error);
-      
-      const errorEmbed = new EmbedBuilder()
-        .setColor('#FF0000')
-        .setTitle('❌ Error')
-        .setDescription('An error occurred while setting up verification.')
-        .addFields({ name: 'Error Details', value: error.message || 'Unknown error' })
-        .setTimestamp();
-      
-      try {
-        await interaction.editReply({ content: null, embeds: [errorEmbed] });
-      } catch (replyError) {
-        console.error('Failed to send error message:', replyError);
-      }
-    }
-  }
-};
+    await channel.send({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: `✅ Système configuré dans ${channel}`, ephemeral: true });
+}

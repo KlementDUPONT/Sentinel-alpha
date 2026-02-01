@@ -14,7 +14,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const SQLiteSessionStore = SQLiteStore(session);
 
-// Logger fallback
 let logger;
 try {
     const loggerModule = await import('./utils/logger.js');
@@ -23,8 +22,7 @@ try {
     logger = {
         info: (msg) => console.log('[INFO]', msg),
         error: (msg, err) => console.error('[ERROR]', msg, err || ''),
-        warn: (msg) => console.warn('[WARN]', msg),
-        debug: (msg) => console.log('[DEBUG]', msg)
+        warn: (msg) => console.warn('[WARN]', msg)
     };
 }
 
@@ -56,22 +54,15 @@ class SentinelBot {
 
     setupWebPanel() {
         const app = this.webApp;
-        const port = config.port || 8000;
-
         app.set('view engine', 'ejs');
         app.set('views', join(__dirname, 'web/views'));
-        app.use(express.static(join(__dirname, 'web/public')));
 
-        // Correction du Warning MemoryStore en utilisant SQLite pour les sessions
+        // Utilisation de SQLite pour les sessions (évite le warning mémoire sur Railway)
         app.use(session({
-            store: new SQLiteSessionStore({
-                db: 'sessions.db',
-                dir: './data' 
-            }),
-            secret: 'sentinel_v2_secret_key',
+            store: new SQLiteSessionStore({ db: 'sessions.db', dir: './data' }),
+            secret: 'sentinel_beta_v2',
             resave: false,
-            saveUninitialized: false,
-            cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+            saveUninitialized: false
         }));
 
         app.get('/', (req, res) => {
@@ -81,15 +72,14 @@ class SentinelBot {
             });
         });
 
-        app.listen(port, '0.0.0.0', () => {
-            logger.info('🌐 Web Dashboard live on port ' + port);
+        app.listen(config.port || 8000, '0.0.0.0', () => {
+            logger.info(`🌐 Dashboard en ligne sur le port ${config.port || 8000}`);
         });
     }
 
     async initialize() {
         if (this.isInitialized) return;
         try {
-            logger.info('🚀 Initializing Sentinel v2.0.1-beta.1...');
             await databaseHandler.initialize();
             await this.eventHandler.loadEvents(join(__dirname, 'events'));
             await this.commandHandler.loadCommands(join(__dirname, 'commands'));
@@ -97,9 +87,9 @@ class SentinelBot {
             
             this.setupWebPanel();
             this.isInitialized = true;
-            logger.info('🎉 Sentinel is fully operational!');
+            logger.info('🚀 Sentinel v2.0.1-beta.1 est prêt !');
         } catch (error) {
-            logger.error('❌ Initialization failed:', error);
+            logger.error('❌ Échec du démarrage :', error);
             process.exit(1);
         }
     }
