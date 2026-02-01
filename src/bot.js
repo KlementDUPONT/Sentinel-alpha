@@ -5,8 +5,10 @@ import config from './config/config.js';
 import databaseHandler from './handlers/DatabaseHandler.js';
 import EventHandler from './handlers/EventHandler.js';
 import CommandHandler from './handlers/CommandHandler.js';
-import ErrorHandler from './handlers/ErrorHandler.js'; // Import ajouté
+import ErrorHandler from './handlers/ErrorHandler.js';
 import express from 'express';
+import session from 'express-session';
+import passport from 'passport';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,33 +29,26 @@ try {
 
 class SentinelBot {
     constructor() {
-        // 1. On crée le client d'abord
         this.client = new Client({
             intents: [
                 GatewayIntentBits.Guilds,
                 GatewayIntentBits.GuildMembers,
                 GatewayIntentBits.GuildMessages,
-                GatewayIntentBits.GuildMessageReactions,
-                GatewayIntentBits.GuildVoiceStates,
                 GatewayIntentBits.MessageContent,
             ],
             partials: [
-                Partials.Message,
-                Partials.Channel,
-                Partials.Reaction,
-                Partials.User,
-                Partials.GuildMember,
+                Partials.Message, 
+                Partials.Channel, 
+                Partials.User
             ],
         });
 
-        // 2. On attache les propriétés maintenant que this.client existe
-        this.config = config;
+        // Attachement des handlers et config
         this.client.config = config;
         this.client.commands = new Collection();
         this.client.cooldowns = new Map();
         this.client.db = databaseHandler;
 
-        // Initialisation du ErrorHandler
         this.errorHandler = new ErrorHandler(this.client);
         this.client.errorHandler = this.errorHandler;
 
@@ -61,28 +56,52 @@ class SentinelBot {
         this.commandHandler = new CommandHandler(this.client);
 
         this.isInitialized = false;
-        this.healthServer = null;
+        this.webApp = express();
     }
 
-    setupHealthCheck() {
-        const app = express();
-        const port = config.port;
+    /**
+     * Configuration du Panel Web (Dashboard)
+     */
+    setupWebPanel() {
+        const app = this.webApp;
+        const port = config.port || 8000;
+
+        // Configuration du moteur de rendu (EJS)
+        app.set('view engine', 'ejs');
+        app.set('views', join(__dirname, 'web/views'));
+        app.use(express.static(join(__dirname, 'web/public')));
+
+        // Middleware de session pour Passport
+        app.use(session({
+            secret: 'sentinel_v2_secret_key',
+            resave: false,
+            saveUninitialized: false
+        }));
+
+        app.use(passport.initialize());
+        app.use(passport.session());
+
+        // Routes basiques
+        app.get('/', (req, res) => {
+            if (!this.client.isReady()) {
+                return res.status(503).send('Bot is starting, please refresh in a few seconds.');
+            }
+            res.render('index', { 
+                bot: this.client.user, 
+                stats: databaseHandler.getStats() 
+            });
+        });
 
         app.get('/health', (req, res) => {
             res.status(200).json({
                 status: 'healthy',
-                uptime: process.uptime(),
                 botReady: this.client.isReady(),
-                guilds: this.client.guilds.cache.size
+                uptime: process.uptime()
             });
         });
 
-        app.get('/', (req, res) => {
-            res.status(200).send('Sentinel Bot is running.');
-        });
-
-        this.healthServer = app.listen(port, '0.0.0.0', () => {
-            logger.info('✅ Express health server listening on port ' + port);
+        app.listen(port, '0.0.0.0', () => {
+            logger.info('🌐 Web Dashboard live on port ' + port);
         });
     }
 
@@ -90,24 +109,28 @@ class SentinelBot {
         if (this.isInitialized) return;
 
         try {
-            logger.info('🚀 Starting Sentinel Bot Initialization...');
+            logger.info('🚀 Starting Sentinel Bot v2.0.1-beta.1...');
 
-            // Step 1: Database
+            // 1. Initialisation de la DB d'abord (très important pour Railway)
             logger.info('📦 Step 1/4: Database initialization');
-            await databaseHandler.initialize(config.databasePath);
+            await databaseHandler.initialize();
 
-            // Step 2: Load handlers
+            // 2. Chargement des Events et Commandes
             logger.info('📦 Step 2/4: Loading events');
             await this.eventHandler.loadEvents(join(__dirname, 'events'));
 
             logger.info('📦 Step 3/4: Loading commands');
             await this.commandHandler.loadCommands(join(__dirname, 'commands'));
 
-            // Step 4: Discord Login
+            // 3. Connexion Discord
             logger.info('📦 Step 4/4: Connecting to Discord...');
             await this.client.login(config.token.trim());
 
+            // 4. Lancement du Web Panel une fois que tout est prêt
+            this.setupWebPanel();
+
             this.isInitialized = true;
+            logger.info('🎉 Sentinel is fully operational!');
         } catch (error) {
             logger.error('❌ Failed to initialize bot:', error);
             process.exit(1);
@@ -116,7 +139,6 @@ class SentinelBot {
 }
 
 const bot = new SentinelBot();
-bot.setupHealthCheck();
 bot.initialize();
 
 export default bot;
